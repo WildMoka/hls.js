@@ -430,8 +430,7 @@
             track.width = config.width;
             track.height = config.height;
             track.sps = [unit.data];
-            track.timescale = this.remuxer.timescale;
-            track.duration = this.remuxer.timescale * this._duration;
+            track.duration = this._duration;
             var codecarray = unit.data.subarray(1, 4);
             var codecstring = 'avc1.';
             for (i = 0; i < 3; i++) {
@@ -601,8 +600,7 @@
       track.audiosamplerate = config.samplerate;
       track.channelCount = config.channelCount;
       track.codec = config.codec;
-      track.timescale = config.samplerate;
-      track.duration = config.samplerate * duration;
+      track.duration = duration;
       logger.log(`parsed codec:${track.codec},rate:${config.samplerate},nb channel:${config.channelCount}`);
     }
     frameIndex = 0;

@@ -32,12 +32,16 @@ hls.js is (being) integrated in the following players:
  - [Clappr] (https://github.com/clappr/clappr), integrated since [0.2.14](https://github.com/clappr/clappr/releases)
  - [Flowplayer] (https://www.flowplayer.org)  through [flowplayer-hlsjs] (https://github.com/flowplayer/flowplayer-hlsjs)
  - [Videojs] (http://videojs.com) through [Videojs-hlsjs] (https://github.com/benjipott/videojs-hlsjs)
+ - [Videojs] (http://videojs.com) through [videojs-hls.js] (https://github.com/streamroot/videojs-hls.js). hls.js is integrated as a SourceHandler -- new feature in Video.js 5.
 
  it might also be integrated in the following players if you push for it !
 
  - [MediaElement.js] (http://mediaelementjs.com/)  through [#1609
 ] (https://github.com/johndyer/mediaelement/issues/1609)
 
+## Chrome integration
+
+ - [native-hls] (https://chrome.google.com/webstore/detail/native-hls-playback/emnphkkblegpebimobpbekeedfgemhof), plays hls from address bar and m3u8 links 
 
 ## Dependencies
 
@@ -60,7 +64,7 @@ either directly include dist/hls.js or dist/hls.min.js
 or type
 
 ```sh
-npm install --save https://github.com/dailymotion/hls.js
+npm install --save hls.js
 ```
 
 ## Compatibility
@@ -104,7 +108,7 @@ as of today, it is supported on:
 
   - CEA-708 captions (roll-up, paint-on, channel 2)
   - MP3 / WebVTT container
-  - Alternate Audio Track Rendition (Master Playlist with alternative Audio)  
+  - Alternate Audio Track Rendition (Master Playlist with alternative Audio)
 
 ### Supported M3U8 tags
 
