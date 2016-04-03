@@ -305,7 +305,7 @@
 
       if (pesLen) {
         // Trim data after announced pesLen
-        pesData = pesData.subarray(0, pesLen - 9 + 1);
+        pesData = pesData.subarray(0, pesLen - 9 - pesHdrLen + 1);
       }
       return {data: pesData, pts: pesPts, dts: pesDts, len: pesLen};
     } else {
