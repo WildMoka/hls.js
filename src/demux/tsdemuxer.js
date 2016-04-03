@@ -302,6 +302,11 @@
         pesData.set(frag, i);
         i+=len;
       }
+
+      if (pesLen) {
+        // Trim data after announced pesLen
+        pesData = pesData.subarray(0, pesLen - 9 + 1);
+      }
       return {data: pesData, pts: pesPts, dts: pesDts, len: pesLen};
     } else {
       return null;
