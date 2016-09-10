@@ -42,7 +42,7 @@ header {
 }
 
 #customButtons input { width: 25%; display : inline-block; text-align: center; font-size: 8pt;}
-#toggleButtons button { width: 24%; display : inline-block; text-align: center; font-size: 8pt; background-color: #A0A0A0 }
+#toggleButtons button { width: 19%; display : inline-block; text-align: center; font-size: 8pt; background-color: #A0A0A0 }
 
 </style>
   <title>hls.js demo</title>
@@ -57,7 +57,7 @@ header {
 <body>
   <div class="header-container">
     <header class="wrapper clearfix">
-      <h1 class="title"><a href="https://github.com/dailymotion/hls.js">hls.js</a> demo page</h1>
+      <h1 class="title"><a target=_blank href="https://github.com/dailymotion/hls.js">hls.js</a> demo page</h1>
     </header>
   </div>
 
@@ -93,11 +93,12 @@ header {
 
     <video id="video" controls autoplay class="videoCentered"></video><br>
     <canvas id="buffered_c" height="15" class="videoCentered" onclick="buffered_seek(event);"></canvas><br><br>
-    <pre id="HlsStatus" class="center"></pre>
+    <pre id="HlsStatus" class="center" style="white-space: pre-wrap;"></pre>
 
     <div class="center" id="toggleButtons">
       <button type="button" class="btn btn-sm" onclick="$('#PlaybackControl').toggle();">toggle playback controls</button>
       <button type="button" class="btn btn-sm" onclick="$('#QualityLevelControl').toggle();">toggle Quality Level controls</button>
+      <button type="button" class="btn btn-sm" onclick="$('#AudioTrackControl').toggle();">toggle Audio Track controls</button>
       <button type="button" class="btn btn-sm" onclick="$('#MetricsDisplay').toggle();toggleMetricsDisplay();">toggle Metrics Display</button>
       <button type="button" class="btn btn-sm" onclick="$('#StatsDisplay').toggle();">toggle Stats Display</button>
     </div>
@@ -139,6 +140,17 @@ header {
           <td> <p>cap level</p></td>
           <td> </td>
           <td> <div id="levelCappingControl" style="display: inline;"></div> </td>
+        </tr>
+      </table>
+    </div>
+
+    <div id='AudioTrackControl'>
+    <h4> Audio Track Control </h4>
+      <table>
+        <tr>
+          <td>current audio track</td>
+          <td width=10px></td>
+          <td> <div id="audioTrackControl" style="display: inline;"></div> </td>
         </tr>
       </table>
     </div>
@@ -201,6 +213,7 @@ $(document).ready(function() {
   $('#videoSize').change(function()          {  $('#video').width($('#videoSize').val()); $('#buffered_c').width($('#videoSize').val());  });
    $("#PlaybackControl").hide();
    $("#QualityLevelControl").hide();
+   $("#AudioTrackControl").hide();
    $("#MetricsDisplay").hide();
    $("#StatsDisplay").hide();
    $('#metricsButtonWindow').toggle(windowSliding);
@@ -215,11 +228,14 @@ $(document).ready(function() {
    $('#enableWorker').prop( "checked", enableWorker );
    $('#levelCapping').val(levelCapping);
    $('#defaultAudioCodec').val(defaultAudioCodec || "undefined");
+
+   $('h1').append(' <a target=_blank href=https://github.com/dailymotion/hls.js/releases/tag/v' + Hls.version + '>v' + Hls.version + '</a>');
+
 });
 
 
   'use strict';
-  var hls,events, stats,
+  var hls,events, stats,tracks,
       enableStreaming = JSON.parse(getURLParam('enableStreaming',true))
       autoRecoverError = JSON.parse(getURLParam('autoRecoverError',true)),
       enableWorker = JSON.parse(getURLParam('enableWorker',true)),
@@ -227,6 +243,7 @@ $(document).ready(function() {
       defaultAudioCodec = getURLParam('defaultAudioCodec',undefined);
   var video = $('#video')[0];
   video.volume = 0.05;
+  $("#currentVersion").html("Hls version:" + Hls.version);
 
   loadStream(decodeURIComponent(getURLParam('src','http://www.streambox.fr/playlists/x36xhzz/x36xhzz.m3u8')));
 
@@ -269,11 +286,11 @@ $(document).ready(function() {
        });
        hls.on(Hls.Events.FRAG_PARSING_INIT_SEGMENT,function(event,data) {
           showCanvas();
-          var event = {time : performance.now() - events.t0, type : "init segment"};
+          var event = {time : performance.now() - events.t0, type : data.id + " init segment"};
           events.video.push(event);
        });
        hls.on(Hls.Events.FRAG_PARSING_METADATA, function(event, data) {
-         console.log("Id3 samples ", data.samples);
+         //console.log("Id3 samples ", data.samples);
        });
        hls.on(Hls.Events.LEVEL_SWITCH,function(event,data) {
           events.level.push({time : performance.now() - events.t0, id : data.level, bitrate : Math.round(hls.levels[data.level].bitrate/1000)});
@@ -298,6 +315,13 @@ $(document).ready(function() {
          stats = {levelNb: data.levels.length};
          updateLevelInfo();
        });
+       hls.on(Hls.Events.AUDIO_TRACKS_UPDATED,function(event,data) {
+          $("#HlsStatus").text(data.audioTracks.length + " audio tracks found");
+          updateAudioTrackInfo();
+       });
+       hls.on(Hls.Events.AUDIO_TRACK_SWITCH,function(event,data) {
+          updateAudioTrackInfo();
+       });
        hls.on(Hls.Events.LEVEL_LOADED,function(event,data) {
           events.isLive = data.details.live;
           var event = {
@@ -314,9 +338,25 @@ $(document).ready(function() {
           events.load.push(event);
           refreshCanvas();
        });
+       hls.on(Hls.Events.AUDIO_TRACK_LOADED,function(event,data) {
+          events.isLive = data.details.live;
+          var event = {
+            type : "audio track",
+            id : data.id,
+            start : data.details.startSN,
+            end : data.details.endSN,
+            time : data.stats.trequest - events.t0,
+            latency : data.stats.tfirst - data.stats.trequest,
+            load : data.stats.tload - data.stats.tfirst,
+            parsing : data.stats.tparsed - data.stats.tload,
+            duration : data.stats.tload - data.stats.tfirst
+          };
+          events.load.push(event);
+          refreshCanvas();
+       });
        hls.on(Hls.Events.FRAG_BUFFERED,function(event,data) {
           var event = {
-            type : "fragment",
+            type : data.frag.type + " fragment",
             id : data.frag.level,
             id2 : data.frag.sn,
             time : data.stats.trequest - events.t0,
@@ -325,8 +365,8 @@ $(document).ready(function() {
             parsing : data.stats.tparsed - data.stats.tload,
             buffer : data.stats.tbuffered - data.stats.tparsed,
             duration : data.stats.tbuffered - data.stats.tfirst,
-            bw : Math.round(8*data.stats.length/(data.stats.tbuffered - data.stats.tfirst)),
-            size : data.stats.length
+            bw : Math.round(8*data.stats.total/(data.stats.tbuffered - data.stats.tfirst)),
+            size : data.stats.total
           };
           events.load.push(event);
           events.bitrate.push({time : performance.now() - events.t0, bitrate : event.bw , duration : data.frag.duration, level : event.id});
@@ -376,6 +416,7 @@ $(document).ready(function() {
         events.video.push(event);
         refreshCanvas();
         updateLevelInfo();
+        stats.tagList = data.frag.tagList;
 
         var level = data.frag.level, autoLevel = data.frag.autoLevel;
         if (stats.levelStart === undefined) {
@@ -430,12 +471,12 @@ $(document).ready(function() {
         switch(data.details) {
           case Hls.ErrorDetails.MANIFEST_LOAD_ERROR:
             try {
-              $("#HlsStatus").html("cannot Load <a href=\"" + data.url + "\">" + url + "</a><br>HTTP response code:" + data.response.status + "<br>" + data.response.statusText);
-                if(data.response.status === 0) {
+              $("#HlsStatus").html("cannot Load <a href=\"" + data.context.url + "\">" + url + "</a><br>HTTP response code:" + data.response.code + " <br>" + data.response.text);
+                if(data.response.code === 0) {
                   $("#HlsStatus").append("this might be a CORS issue, consider installing <a href=\"https://chrome.google.com/webstore/detail/allow-control-allow-origi/nlfbmbojpeacfghkpbjhddihlkkiljbi\">Allow-Control-Allow-Origin</a> Chrome Extension");
                 }
             } catch(err) {
-              $("#HlsStatus").html("cannot Load <a href=\"" + data.url + "\">" + url + "</a><br>Reason:Load " + data.event.type);
+              $("#HlsStatus").html("cannot Load <a href=\"" + data.context.url + "\">" + url + "</a><br>Reason:Load " + data.response.text);
             }
             break;
           case Hls.ErrorDetails.MANIFEST_LOAD_TIMEOUT:
@@ -477,6 +518,9 @@ $(document).ready(function() {
           case Hls.ErrorDetails.BUFFER_APPEND_ERROR:
             $("#HlsStatus").text("Buffer Append Error");
             break;
+          case Hls.ErrorDetails.BUFFER_ADD_CODEC_ERROR:
+            $("#HlsStatus").text("Buffer Add Codec Error for " + data.mimeType + ":" + data.err.message);
+            break;
           case Hls.ErrorDetails.BUFFER_APPENDING_ERROR:
             $("#HlsStatus").text("Buffer Appending Error");
             break;
@@ -514,6 +558,10 @@ $(document).ready(function() {
           }
         }
         $("#HlsStats").text(JSON.stringify(sortObject(stats),null,"\t"));
+       });
+
+       hls.on(Hls.Events.BUFFER_CREATED, function(event,data) {
+        tracks = data.tracks;
        });
 
        hls.on(Hls.Events.FPS_DROP,function(event,data) {
@@ -731,6 +779,9 @@ function timeRangesToString(r) {
               + "Played:"
               + timeRangesToString(v.played) + "<br>";
 
+      for(var type in tracks) {
+        log += type + " Buffered:" + timeRangesToString(tracks[type].buffer.buffered) + "<br>";
+      }
 
       var videoPlaybackQuality = v.getVideoPlaybackQuality;
       if(videoPlaybackQuality && typeof(videoPlaybackQuality) === typeof(Function)) {
@@ -907,11 +958,42 @@ function timeRangesToString(r) {
     if(v.videoWidth) {
       $("#currentResolution").html("video resolution:" + v.videoWidth + 'x' + v.videoHeight);
     }
-    $("#currentLevelControl").html(html1);
-    $("#loadLevelControl").html(html2);
-    $("#levelCappingControl").html(html3);
-    $("#nextLevelControl").html(html4);
+    if($("#currentLevelControl").html() != html1) {
+      $("#currentLevelControl").html(html1);
+    }
+
+    if($("#loadLevelControl").html() != html2) {
+      $("#loadLevelControl").html(html2);
+    }
+
+    if($("#levelCappingControl").html() != html3) {
+      $("#levelCappingControl").html(html3);
+    }
+
+    if($("#nextLevelControl").html() != html4) {
+      $("#nextLevelControl").html(html4);
+    }
   }
+
+function updateAudioTrackInfo() {
+    var button_template = '<button type="button" class="btn btn-sm ';
+    var button_enabled  = 'btn-primary" ';
+    var button_disabled = 'btn-success" ';
+    var html1 = '';
+    var audioTrackId = hls.audioTrack, len = hls.audioTracks.length;
+
+    for (var i=0; i < len; i++) {
+      html1 += button_template;
+      if(audioTrackId === i) {
+        html1 += button_enabled;
+      } else {
+        html1 += button_disabled;
+      }
+      html1 += 'onclick="hls.audioTrack=' + i + '">' + hls.audioTracks[i].name + '</button>';
+    }
+    $("#audioTrackControl").html(html1);
+  }
+
 
   function level2label(index) {
     if(hls && hls.levels.length-1 >= index) {
