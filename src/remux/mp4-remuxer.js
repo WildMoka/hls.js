@@ -191,10 +191,15 @@ class MP4Remuxer {
   // }
 
     // sort video samples by DTS order
-    inputSamples.sort(function(a, b) {
-      return (a.dts-b.dts);
-    });
-
+    // for (let j=0; j<inputSamples.length; j++){
+    //   inputSamples[j].index = j;
+    // }
+    // inputSamples.sort(function (a, b) {
+    //   if(a.dts == b.dts){
+    //     return a.index - b.index;
+    //   }
+    //   return a.dts - b.dts;
+    // });
     // handle broken streams with PTS < DTS, tolerance up 200ms (18000 in 90kHz timescale)
     let PTSDTSshift = inputSamples.reduce( (prev, curr) => Math.max(Math.min(prev,curr.pts-curr.dts),-18000),0);
     if (PTSDTSshift < 0) {
@@ -202,6 +207,23 @@ class MP4Remuxer {
       for (let i = 0; i < inputSamples.length; i++) {
         inputSamples[i].dts += PTSDTSshift;
       }
+    }
+
+    var previousDTS = 0;
+    var needDTSAdjustValue = 0;
+    for (var i = 0; i < inputSamples.length; i++) {
+      if(previousDTS){
+        var deltaDTS = inputSamples[i].dts - previousDTS;
+        if(deltaDTS < 0){
+          inputSamples[i].dts += (previousDTS - inputSamples[i].dts + 3600);
+          needDTSAdjustValue = Math.max(needDTSAdjustValue, previousDTS - inputSamples[i].dts);
+        }
+
+      }
+      previousDTS = inputSamples[i].dts;
+    }
+    if(needDTSAdjustValue){
+      logger.warn(`DTS < DTS detected between video samples, shifting DTS by max ${Math.round(needDTSAdjustValue/90)} ms to overcome this issue`);
     }
 
   // PTS is coded on 33bits, and can loop from -2^32 to 2^32
@@ -408,7 +430,13 @@ class MP4Remuxer {
         fillFrame, newStamp,
         nextAacPts;
 
+    for (let j=0; j<track.samples.length; j++){
+      track.samples[j].index = j;
+    }
     track.samples.sort(function(a, b) {
+      if(a.pts == b.pts){
+        return a.index - b.index;
+      }
       return (a.pts-b.pts);
     });
     samples0 = track.samples;
