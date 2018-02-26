@@ -20,11 +20,15 @@ class LevelController extends EventHandler {
   }
 
   destroy() {
-    if (this.timer) {
+    this.cleanTimer();
+    this._manualLevel = -1;
+  }
+
+  cleanTimer() {
+    if (this.timer !== null) {
       clearTimeout(this.timer);
       this.timer = null;
     }
-    this._manualLevel = -1;
   }
 
   startLoad() {
@@ -135,10 +139,7 @@ class LevelController extends EventHandler {
     // check if level idx is valid
     if (newLevel >= 0 && newLevel < levels.length) {
       // stopping live reloading timer if any
-      if (this.timer) {
-       clearTimeout(this.timer);
-       this.timer = null;
-      }
+      this.cleanTimer();
       if (this._level !== newLevel) {
         logger.log(`switching to level ${newLevel}`);
         this._level = newLevel;
@@ -203,13 +204,16 @@ class LevelController extends EventHandler {
   }
 
   onError(data) {
-    if(data.fatal) {
+    if (data.fatal === true) {
+      if (data.type === ErrorTypes.NETWORK_ERROR) {
+        this.cleanTimer();
+      }
       return;
     }
 
     let details = data.details, hls = this.hls, levelId, level, levelError = false, abrController = hls.abrController, minAutoLevel = abrController.minAutoLevel;
     // try to recover not fatal errors
-    switch(details) {
+    switch (details) {
       case ErrorDetails.FRAG_LOAD_ERROR:
       case ErrorDetails.FRAG_LOAD_TIMEOUT:
       case ErrorDetails.FRAG_LOOP_LOADING_ERROR:
@@ -261,11 +265,8 @@ class LevelController extends EventHandler {
             logger.error(`cannot recover ${details} error`);
             this._level = undefined;
             // stopping live reloading timer if any
-            if (this.timer) {
-              clearTimeout(this.timer);
-              this.timer = null;
-            }
-            // redispatch same error but with fatal set to true
+            this.cleanTimer();
+            // switch error to fatal
             data.fatal = true;
             hls.trigger(Event.ERROR, data);
           }
@@ -280,24 +281,25 @@ class LevelController extends EventHandler {
       let newDetails = data.details;
       // if current playlist is a live playlist, arm a timer to reload it
       if (newDetails.live) {
-        let reloadInterval = 1000*( newDetails.averagetargetduration ? newDetails.averagetargetduration : newDetails.targetduration),
-            curLevel = this._levels[data.level],
-            curDetails = curLevel.details;
+        let reloadInterval = 1000 * ( newDetails.averagetargetduration ? newDetails.averagetargetduration : newDetails.targetduration),
+            curLevel       = this._levels[data.level],
+            curDetails     = curLevel.details;
         if (curDetails && newDetails.endSN === curDetails.endSN) {
           // follow HLS Spec, If the client reloads a Playlist file and finds that it has not
           // changed then it MUST wait for a period of one-half the target
           // duration before retrying.
-          reloadInterval /=2;
+          reloadInterval /= 2;
           logger.log(`same live playlist, reload twice faster`);
         }
         // decrement reloadInterval with level loading delay
         reloadInterval -= performance.now() - data.stats.trequest;
         // in any case, don't reload more than every second
-        reloadInterval = Math.max(1000,Math.round(reloadInterval));
+        reloadInterval = Math.max(1000, Math.round(reloadInterval));
         logger.log(`live playlist, reload in ${reloadInterval} ms`);
-        this.timer = setTimeout(this.ontick,reloadInterval);
+        this.cleanTimer();
+        this.timer = setTimeout(() => this.tick(), reloadInterval);
       } else {
-        this.timer = null;
+        this.cleanTimer();
       }
     }
   }
@@ -327,4 +329,3 @@ class LevelController extends EventHandler {
 }
 
 export default LevelController;
-
