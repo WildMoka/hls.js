@@ -12,7 +12,15 @@ import {logger} from '../utils/logger';
 // https://regex101.com is your friend
 const MASTER_PLAYLIST_REGEX = /#EXT-X-STREAM-INF:([^\n\r]*)[\r\n]+([^\r\n]+)/g;
 const MASTER_PLAYLIST_MEDIA_REGEX = /#EXT-X-MEDIA:(.*)/g;
-const LEVEL_PLAYLIST_REGEX_FAST = /#EXTINF:(\d*(?:\.\d+)?)(?:,(.*))?|(?!#)(\S.+)|#EXT-X-BYTERANGE: *(.+)|#EXT-X-PROGRAM-DATE-TIME:(.+)|#.*/g;
+
+const LEVEL_PLAYLIST_REGEX_FAST = new RegExp([
+  /#EXTINF:(\d*(?:\.\d+)?)(?:,(.*)\s+)?/.source, // duration (#EXTINF:<duration>,<title>), group 1 => duration, group 2 => title
+  /|(?!#)(\S+)/.source,                          // segment URI, group 3 => the URI (note newline is not eaten)
+  /|#EXT-X-BYTERANGE:*(.+)/.source,              // next segment's byterange, group 4 => range spec (x@y)
+  /|#EXT-X-PROGRAM-DATE-TIME:(.+)/.source,       // next segment's program date/time group 5 => the datetime spec
+  /|#.*/.source                                  // All other non-segment oriented tags will match with all groups empty
+].join(''), 'g');
+
 const LEVEL_PLAYLIST_REGEX_SLOW = /(?:(?:#(EXTM3U))|(?:#EXT-X-(PLAYLIST-TYPE):(.+))|(?:#EXT-X-(MEDIA-SEQUENCE): *(\d+))|(?:#EXT-X-(TARGETDURATION): *(\d+))|(?:#EXT-X-(KEY):(.+))|(?:#EXT-X-(START):(.+))|(?:#EXT-X-(ENDLIST))|(?:#EXT-X-(DISCONTINUITY-SEQ)UENCE:(\d+))|(?:#EXT-X-(DIS)CONTINUITY))|(?:#EXT-X-(VERSION):(\d+))|(?:#EXT-X-(MAP):(.+))|(?:(#)(.*):(.*))|(?:(#)(.*))(?:.*)\r?\n?/;
 
 class LevelKey {
@@ -26,7 +34,7 @@ class LevelKey {
 
   get uri() {
     if (!this._uri && this.reluri) {
-      this._uri = URLToolkit.buildAbsoluteURL(this.baseuri, this.reluri);
+      this._uri = URLToolkit.buildAbsoluteURL(this.baseuri, this.reluri, { alwaysNormalize: true });
     }
     return this._uri;
   }
@@ -44,7 +52,7 @@ class Fragment {
 
   get url() {
     if (!this._url && this.relurl) {
-      this._url = URLToolkit.buildAbsoluteURL(this.baseurl, this.relurl);
+      this._url = URLToolkit.buildAbsoluteURL(this.baseurl, this.relurl, { alwaysNormalize: true });
     }
     return this._url;
   }
@@ -137,7 +145,8 @@ class PlaylistLoader extends EventHandler {
     super(hls,
       Event.MANIFEST_LOADING,
       Event.LEVEL_LOADING,
-      Event.AUDIO_TRACK_LOADING);
+      Event.AUDIO_TRACK_LOADING,
+      Event.SUBTITLE_TRACK_LOADING);
     this.loaders = {};
   }
 
@@ -162,6 +171,10 @@ class PlaylistLoader extends EventHandler {
 
   onAudioTrackLoading(data) {
     this.load(data.url, { type : 'audioTrack', id : data.id});
+  }
+
+  onSubtitleTrackLoading(data) {
+    this.load(data.url, { type : 'subtitleTrack', id : data.id});
   }
 
   load(url, context) {
@@ -204,7 +217,7 @@ class PlaylistLoader extends EventHandler {
   }
 
   resolve(url, baseUrl) {
-    return URLToolkit.buildAbsoluteURL(baseUrl, url);
+    return URLToolkit.buildAbsoluteURL(baseUrl, url, { alwaysNormalize: true });
   }
 
   parseMasterPlaylist(string, baseurl) {
@@ -231,6 +244,8 @@ class PlaylistLoader extends EventHandler {
           const codec = codecs[i];
           if (codec.indexOf('avc1') !== -1) {
             level.videoCodec = this.avc1toavcoti(codec);
+          } else if (codec.indexOf('hvc1') !== -1) {
+            level.videoCodec = codec;
           } else {
             level.audioCodec = codec;
           }
@@ -243,7 +258,7 @@ class PlaylistLoader extends EventHandler {
   }
 
   parseMasterPlaylistMedia(string, baseurl, type) {
-    let result, medias = [];
+    let result, medias = [], id = 0;
     MASTER_PLAYLIST_MEDIA_REGEX.lastIndex = 0;
     while ((result = MASTER_PLAYLIST_MEDIA_REGEX.exec(string)) != null){
       const media = {};
@@ -262,6 +277,7 @@ class PlaylistLoader extends EventHandler {
         if(!media.name) {
             media.name = media.lang;
         }
+        media.id = id++;
         medias.push(media);
       }
     }
@@ -297,7 +313,7 @@ class PlaylistLoader extends EventHandler {
       const duration = result[1];
       if (duration) { // INF
         frag.duration = parseFloat(duration);
-        // avoid sliced strings    https://github.com/dailymotion/hls.js/issues/939
+        // avoid sliced strings    https://github.com/video-dev/hls.js/issues/939
         const title = (' ' + result[2]).slice(1);
         frag.title = title ? title : null;
         frag.tagList.push(title ? [ 'INF',duration,title ] : [ 'INF',duration ]);
@@ -311,7 +327,7 @@ class PlaylistLoader extends EventHandler {
           frag.level = id;
           frag.cc = cc;
           frag.baseurl = baseurl;
-          // avoid sliced strings    https://github.com/dailymotion/hls.js/issues/939
+          // avoid sliced strings    https://github.com/video-dev/hls.js/issues/939
           frag.relurl = (' ' + result[3]).slice(1);
 
           level.fragments.push(frag);
@@ -329,7 +345,7 @@ class PlaylistLoader extends EventHandler {
           }
         }
       } else if (result[5]) { // PROGRAM-DATE-TIME
-        // avoid sliced strings    https://github.com/dailymotion/hls.js/issues/939
+        // avoid sliced strings    https://github.com/video-dev/hls.js/issues/939
         frag.rawProgramDateTime = (' ' + result[5]).slice(1);
         frag.tagList.push(['PROGRAM-DATE-TIME', frag.rawProgramDateTime]);
       } else {
@@ -340,7 +356,7 @@ class PlaylistLoader extends EventHandler {
           }
         }
 
-        // avoid sliced strings    https://github.com/dailymotion/hls.js/issues/939
+        // avoid sliced strings    https://github.com/video-dev/hls.js/issues/939
         const value1 = (' ' + result[i+1]).slice(1);
         const value2 = (' ' + result[i+2]).slice(1);
 
@@ -381,7 +397,7 @@ class PlaylistLoader extends EventHandler {
                 decryptiv = keyAttrs.hexadecimalInteger('IV');
             if (decryptmethod) {
               levelkey = new LevelKey();
-              if ((decrypturi) && (decryptmethod === 'AES-128')) {
+              if ((decrypturi) && (['AES-128', 'SAMPLE-AES'].indexOf(decryptmethod) >= 0)) {
                 levelkey.method = decryptmethod;
                 // URI to get the key
                 levelkey.baseuri = baseurl;
@@ -430,7 +446,7 @@ class PlaylistLoader extends EventHandler {
     return level;
   }
 
-  loadsuccess(response, stats, context) {
+  loadsuccess(response, stats, context, networkDetails=null) {
     var string = response.data,
         url = response.url,
         type = context.type,
@@ -449,31 +465,39 @@ class PlaylistLoader extends EventHandler {
     //stats.mtime = new Date(target.getResponseHeader('Last-Modified'));
     if (string.indexOf('#EXTM3U') === 0) {
       if (string.indexOf('#EXTINF:') > 0) {
-        let isLevel = (type !== 'audioTrack'),
-            levelDetails = this.parseLevelPlaylist(string, url, (isLevel ? level : id) || 0, isLevel ? 'main' : 'audio');
+        let isLevel = (type !== 'audioTrack' && type !== 'subtitleTrack'),
+            levelId = !isNaN(level) ? level : !isNaN(id) ? id : 0,
+            levelDetails = this.parseLevelPlaylist(string, url, levelId, (type === 'audioTrack' ? 'audio' : (type === 'subtitleTrack' ? 'subtitle' : 'main') ));
+            levelDetails.tload = stats.tload;
         if (type === 'manifest') {
         // first request, stream manifest (no master playlist), fire manifest loaded event with level details
-          hls.trigger(Event.MANIFEST_LOADED, {levels: [{url: url, details : levelDetails}], audioTracks : [], url: url, stats: stats});
+          hls.trigger(Event.MANIFEST_LOADED, {levels: [{url: url, details : levelDetails}], audioTracks : [], url: url, stats: stats, networkDetails: networkDetails});
         }
         stats.tparsed = performance.now();
         if (levelDetails.targetduration) {
           if (isLevel) {
-            hls.trigger(Event.LEVEL_LOADED, {details: levelDetails, level: level || 0, id: id || 0, stats: stats});
+            hls.trigger(Event.LEVEL_LOADED, {details: levelDetails, level: level || 0, id: id || 0, stats: stats, networkDetails: networkDetails});
           } else {
-            hls.trigger(Event.AUDIO_TRACK_LOADED, {details: levelDetails, id: id, stats: stats});
+            if (type === 'audioTrack') {
+              hls.trigger(Event.AUDIO_TRACK_LOADED, {details: levelDetails, id: id, stats: stats, networkDetails: networkDetails});
+            }
+            else if (type === 'subtitleTrack') {
+              hls.trigger(Event.SUBTITLE_TRACK_LOADED, {details: levelDetails, id: id, stats: stats, networkDetails: networkDetails});
+            }
           }
         } else {
-          hls.trigger(Event.ERROR, {type: ErrorTypes.NETWORK_ERROR, details: ErrorDetails.MANIFEST_PARSING_ERROR, fatal: true, url: url, reason: 'invalid targetduration'});
+          hls.trigger(Event.ERROR, {type: ErrorTypes.NETWORK_ERROR, details: ErrorDetails.MANIFEST_PARSING_ERROR, fatal: true, url: url, reason: 'invalid targetduration', networkDetails: networkDetails});
         }
       } else {
         let levels = this.parseMasterPlaylist(string, url);
         // multi level playlist, parse level info
         if (levels.length) {
-          let audiotracks = this.parseMasterPlaylistMedia(string, url, 'AUDIO');
-          if (audiotracks.length) {
+          let audioTracks = this.parseMasterPlaylistMedia(string, url, 'AUDIO');
+          let subtitles = this.parseMasterPlaylistMedia(string, url, 'SUBTITLES');
+          if (audioTracks.length) {
             // check if we have found an audio track embedded in main playlist (audio track without URI attribute)
             let embeddedAudioFound = false;
-            audiotracks.forEach(audioTrack => {
+            audioTracks.forEach(audioTrack => {
               if(!audioTrack.url) {
                 embeddedAudioFound = true;
               }
@@ -482,20 +506,20 @@ class PlaylistLoader extends EventHandler {
             // this could happen with playlists with alt audio rendition in which quality levels (main) contains both audio+video. but with mixed audio track not signaled
             if (embeddedAudioFound === false && levels[0].audioCodec && !levels[0].attrs.AUDIO) {
               logger.log('audio codec signaled in quality level, but no embedded audio track signaled, create one');
-              audiotracks.unshift({ type : 'main', name : 'main'});
+              audioTracks.unshift({ type : 'main', name : 'main'});
             }
           }
-          hls.trigger(Event.MANIFEST_LOADED, {levels: levels, audioTracks : audiotracks, url: url, stats: stats});
+          hls.trigger(Event.MANIFEST_LOADED, {levels, audioTracks, subtitles, url, stats, networkDetails});
         } else {
-          hls.trigger(Event.ERROR, {type: ErrorTypes.NETWORK_ERROR, details: ErrorDetails.MANIFEST_PARSING_ERROR, fatal: true, url: url, reason: 'no level found in manifest'});
+          hls.trigger(Event.ERROR, {type: ErrorTypes.NETWORK_ERROR, details: ErrorDetails.MANIFEST_PARSING_ERROR, fatal: true, url: url, reason: 'no level found in manifest', networkDetails: networkDetails});
         }
       }
     } else {
-      hls.trigger(Event.ERROR, {type: ErrorTypes.NETWORK_ERROR, details: ErrorDetails.MANIFEST_PARSING_ERROR, fatal: true, url: url, reason: 'no EXTM3U delimiter'});
+      hls.trigger(Event.ERROR, {type: ErrorTypes.NETWORK_ERROR, details: ErrorDetails.MANIFEST_PARSING_ERROR, fatal: true, url: url, reason: 'no EXTM3U delimiter', networkDetails: networkDetails});
     }
   }
 
-  loaderror(response, context) {
+  loaderror(response, context, networkDetails=null) {
     var details, fatal,loader = context.loader;
     switch(context.type) {
       case 'manifest':
@@ -515,10 +539,10 @@ class PlaylistLoader extends EventHandler {
       loader.abort();
       this.loaders[context.type] = undefined;
     }
-    this.hls.trigger(Event.ERROR, {type: ErrorTypes.NETWORK_ERROR, details: details, fatal: fatal, url: loader.url, loader: loader, response: response, context : context});
+    this.hls.trigger(Event.ERROR, {type: ErrorTypes.NETWORK_ERROR, details: details, fatal: fatal, url: loader.url, loader: loader, response: response, context : context, networkDetails: networkDetails});
   }
 
-  loadtimeout(stats, context) {
+  loadtimeout(stats, context, networkDetails=null) {
     var details, fatal, loader = context.loader;
     switch(context.type) {
       case 'manifest':
@@ -538,7 +562,7 @@ class PlaylistLoader extends EventHandler {
       loader.abort();
       this.loaders[context.type] = undefined;
     }
-    this.hls.trigger(Event.ERROR, {type: ErrorTypes.NETWORK_ERROR, details: details, fatal: fatal, url: loader.url, loader: loader, context : context});
+    this.hls.trigger(Event.ERROR, {type: ErrorTypes.NETWORK_ERROR, details: details, fatal: fatal, url: loader.url, loader: loader, context : context, networkDetails: networkDetails});
   }
 }
 
