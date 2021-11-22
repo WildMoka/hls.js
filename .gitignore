@@ -6,5 +6,6 @@ lib
 npm-debug.log
 subgrunt.log
 
+dist/*
 # ignore JetBrains
 .idea/*
