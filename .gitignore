@@ -7,5 +7,7 @@ npm-debug.log
 subgrunt.log
 
 dist/*
+!dist/.gitkeep
+
 # ignore JetBrains
 .idea/*
