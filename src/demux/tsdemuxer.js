@@ -164,19 +164,22 @@
             // this is to avoid resetting the PID to -1 in case
             // track PID transiently disappears from the stream
             // this could happen in case of transient missing audio samples for example
-            avcId = parsedPIDs.avc;
-            if (avcId > 0) {
+            if(parsedPIDs.avc > 0) {
+              avcId = parsedPIDs.avc;
               avcTrack.id = avcId;
             }
-            audioId = parsedPIDs.audio;
-            if (audioId > 0) {
+
+            if(parsedPIDs.audio) {
+              audioId = parsedPIDs.audio;
               audioTrack.id = audioId;
               audioTrack.isAAC = parsedPIDs.isAAC;
             }
-            id3Id = parsedPIDs.id3;
-            if (id3Id > 0) {
+
+            if(parsedPIDs.id3) {
+              id3Id = parsedPIDs.id3;
               id3Track.id = id3Id;
             }
+
             if (unknownPIDs && !pmtParsed) {
               logger.log('reparse from beginning');
               unknownPIDs = false;
